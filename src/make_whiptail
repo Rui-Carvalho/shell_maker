@@ -1,0 +1,51 @@
+#!/bin/bash
+
+COLOURS='
+  root=,white
+  window=,blue
+  border=white,green
+  listbox=white,blue
+  textbox=white,blue
+  shadow=white,white
+  button=red,cyan
+'
+TERMINAL_HEIGHT=$(stty -a | tr \; \\012 | egrep 'rows' | cut '-d ' -f3)
+TERMINAL_WIDTH=$(stty -a | tr \; \\012 | egrep 'columns' | cut '-d ' -f3)
+
+function menuWhiptail {
+	COMMANDS=()
+	for c in {1..100}; do
+		cmd=CMD_$c
+    	eval 'cmd_desc='"$cmd"'_DESCRIPTION'
+    	if [ -n "${!cmd}" ]; then
+	      #echo -e "\t${c}. ${!cmd_desc}"
+	      COMMANDS+=("$c     " "${!cmd_desc}")
+	    else
+	      break
+	    fi
+	done
+	HEIGHT=$(($TERMINAL_HEIGHT - 5))
+	WIDTH=$(($TERMINAL_WIDTH - 65))
+	MENU_HEIGHT=15
+	NEWT_COLORS=$COLOURS \
+	whiptail --title "Make Menu" --menu "\n  Which command you want to run?" $HEIGHT $WIDTH $MENU_HEIGHT "${COMMANDS[@]}" 3>&1 1>&2 2>&3
+}
+
+function whiptailContinue {
+    HEIGHT=8
+    WIDTH=78
+	if ! NEWT_COLORS=$COLOURS whiptail --title "Continue?" --yesno "Do you want to continue?" $HEIGHT $WIDTH; then
+	    logError "\n>>> Exited!"
+	    exit
+	fi
+}
+
+function whiptailSubMenu {
+    TITLE="\n  Which command you want to run?"
+    COMMANDS=("$@")
+  	
+    HEIGHT=$(($TERMINAL_HEIGHT - 5))
+    WIDTH=$(($TERMINAL_WIDTH - 65))
+    MENU_HEIGHT=15
+    NEWT_COLORS=$COLOURS whiptail --title "Make Menu" --menu "${TITLE}" $HEIGHT $WIDTH $MENU_HEIGHT "${COMMANDS[@]}" 3>&1 1>&2 2>&3
+}

@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# NOTE: you can use the following
+#    confirm[-<optional message to user>]  ===> asks for confirmation at beggining of command sequence
+#    continue ================================> asks user to press any key to continue
+#    info ====================================> informs user about any message you want to show
+#    askIfSkip ===============================> Asks the user if he wants to skip the next command
+#    forceRunAsk =============================> asks if user wants to run in force mode: runs all commands without confirmation
+#    askVar-{COL} ============================> asks the user for a variable that can be used on further instructions
+
+# ====================================================
+CMD_1_DESCRIPTION="Clear Symfony2 Cache (rm, cache:clear, chmod 777)"
+CMD_1=( \
+"sudo rm -Rf app/cache/*" \
+"sf cache:clear" \
+"sudo chmod -R 777 app/cache" \
+)
+# ====================================================
+CMD_2_DESCRIPTION="Rebuild Site FE"
+CMD_2=( \
+"info-Rebuilds the Site FE app." \
+"gulp dev")
+# ====================================================
+CMD_3_DESCRIPTION=""
+CMD_3=( \
+)
+# ====================================================
+
+
+# ====================================================
+#             SUPPORTING FUNCTIONS NEEDED
+# ====================================================
+function exec_mysql_cmd {
+    #echo "${1}"
+    mysql -u <your_mysql_user> -p<your_mysql_password> -h localhost -e "${1}"
+}
+
+function update_all_schemas {
+    ems=(default user profile newsletter)
+    for em in ${ems[@]}
+    do
+        echo -e "\n ${yellow} >>> Updating schema for: $em ...${STD}"
+        php app/console doctrine:schema:update --force --em=$em -e=devbox --no-debug;
+	echo -e "\n"
+    done
+}

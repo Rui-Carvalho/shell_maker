@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# ======================================
+#            GENERAL FUNCTIONS 
+# ======================================
+
+function runSudoPass {
+    echo ${p} | sudo -Sk sh -c "echo '' && $1"
+    # also this works:  sudo -S <<< "$p" sh -c "$1"
+}
+
+function showMemorySpaceOfServer {
+    showInfo "=====================================================\n\t\tSERVER SPACE ON MOUNT POINTS"
+    df --total -h
+
+    showInfo "=====================================================\n\t\t10 BIGGEST DIRECTORIES OVERALL"
+    showInfo " calculating..."
+    showMemorySpaceOfGivenDir "/"
+
+    showInfo "=====================================================\n\t\t10 BIGGEST DIRS IN >HOME<"
+    showInfo " calculating..."
+    showMemorySpaceOfGivenDir "/home"
+
+    showInfo "=====================================================\n\t\t10 BIGGEST DIRS IN >VAR<"
+    showInfo " calculating..."
+    showMemorySpaceOfGivenDir "/var"
+}
+
+function showMemorySpaceOfDoLBackupFolder {
+    showInfo "=====================================================\n\t\tDoL BACKUP DIRECTORY SPACE"
+    showMemorySpaceOfGivenDir "$DIR_BACKUPS"
+    showInfo "====================================================="
+}
+
+function showMemorySpaceOfGivenDir {
+    [ -z "$1" ] && logError "Show Memory Space: please provide a valid directory name" && return 1 
+    [ ! -d $1 ] && logError "Show Memory Space: the directory name given does not exist in filesystem" && return 1
+    DIR="$1"
+    [ "$DIR" = "/" ] && DIR=""
+    runSudoPass "du -sh ${DIR}/* 2>&1 | sort -hr | head -n10"
+}
+
+function dbMysqlCreateDatabase {
+    [ -z "$1" ] && logError "Create DB: the name for new DB is empty" && return 1
+    DB_NAME=$1
+    execSQLQuery "CREATE DATABASE ${DB_NAME} CHARACTER SET UTF8mb4 COLLATE utf8mb4_unicode_ci;"
+}
+
+function createMysqlDump {
+    [ -z "$1" ] && logError "Create MySQL Dump: the DB name provided is empty" && return 1
+    [ -z "$2" ] && logError "Create MySQL Dump: the filename to dump DB to is empty" && return 1 
+    DB_NAME=$1
+    FILE_NAME=$2
+    mysqldump -u ${u} -p${p} --routines $DB_NAME > $FILE_NAME
+}
+
+function runDatabaseQueries {
+    # Run the menu using whiptail if the binary exists in the system
+    if hash whiptail 2>/dev/null; then
+        SUB_MENU=( "0" 'Run My Own SQL Query [CAREFULL WITH THIS OPTION]' "1" "Show Databases" "2" "Show Tables of a Database" "3" "Show Number of Rows Existing in each Table" )
+        OPTION=$(whiptailSubMenu "${SUB_MENU[@]}")
+    else
+        showInfo "Which query you want to run?"
+        showWarning -c "[0] - Run My Own SQL Query [CAREFULL WITH THIS OPTION]"
+        showInfo -c "[1] - Show Databases"
+        showInfo -c "[2] - Show Tables of a Database"
+        showInfo -c "[3] - Show Number of Rows Existing in each Table"
+        read -p "Option: " OPTION
+    fi
+    
+    case $OPTION in
+      "0" )
+          showInfo "Running My Own SQL Query [CAREFULL WITH THIS OPTION]"
+          read -p "SQL to run: " SQL_STRING
+          showWarning "\nGoing to execute the command:"
+          showWarning " ${SQL_STRING}\n"
+          confirmToContinue
+          execSQLQuery "${SQL_STRING}"
+          break
+          ;;
+      "1" )
+          showInfo "Show Databases"
+          showInfo "These are the available DBs on the server:"
+          execSQLQuery "SHOW DATABASES;"
+          break
+          ;;
+      "2" )
+          showInfo "Show Tables of a Database"
+          showInfo "These are the available DBs on the server:"
+          execSQLQuery "SHOW DATABASES;"
+          read -p "Which DB to show tables for: " DB_NAME
+          execSQLQuery "use ${DB_NAME}; SHOW TABLES;"
+          break
+          ;;
+      "3" )
+          showInfo "Show Number of Rows Existing in each Table"
+          showInfo "These are the available DBs on the server:"
+          execSQLQuery "SHOW DATABASES;"
+          read -p "Which DB to show tables for: " DB_NAME
+          execSQLQuery "SELECT table_name, table_rows FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '${DB_NAME}';"
+          break
+          ;;
+      *) showWarning "Invalid Option";;
+    esac
+}
+
+function execSQLQuery {
+    echo $1
+    [ -z "$1" ] && logError "DB - Run Query: the query to run is empty" && return 1
+    QUERY="$1"
+    mysql -u ${u} -p${p} -h localhost -e "${QUERY}"
+}
+
+function dbMysqlImportDatabaseFromFile {
+    [ -z "$1" ] && logError "Import DB: the DB name provided is empty" && return 1
+    [ -z "$2" ] && logError "Import DB: the filename to import DB from is empty" && return 1 
+    [ ! -f $2 ] && logError "Import DB: the file to import DB from does not exist" && return 1
+    DB_NAME=$1
+    FILE_NAME=$2
+    showInfo "Running: mysql -u <user> -p<password> -h localhost $DB_NAME < $FILE_NAME"
+    mysql -u ${u} -p${p} -h localhost $DB_NAME < $FILE_NAME
+}
+
+function cleanZeroSizeFiles {
+    if [ -d "$1" ] && [ ! -z "$1" ]; then
+       find $1 -size 0 -delete
+    else
+        logError "Directory for cleaning up zero files does not exist"
+    fi 
+}

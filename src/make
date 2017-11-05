@@ -1,0 +1,287 @@
+#!/bin/bash
+
+#=============================================================
+#         FILE: make
+#        USAGE: Interactive mode: ./make -i ||  Cmd: ./make 1
+#               You can use ./make 1 2 3 ... => runs in sequence
+#  DESCRIPTION: Executes project commands in shell
+#      OPTIONS: -i for interactive mode
+# REQUIREMENTS: ---
+#         BUGS: ---
+#        NOTES: ---
+#       AUTHOR: Rui Carvalho
+#      COMPANY: https://github.com/Rui-Carvalho/
+#      VERSION: 1.0
+#      CREATED: 14.03.2015
+#     REVISION: 15.03.2015
+#=============================================================
+
+# ----------------------------------
+# 1) Load Script Dependencies
+# ----------------------------------
+
+# Set script to use aliases defined in user account
+shopt -s expand_aliases
+source make_alias
+
+# Load General Functions for make
+source make_fn
+
+# Load make UI styled with Whiptail
+source make_whiptail
+
+# We load command definitions
+source make_cmds
+
+# ----------------------------------
+# 2) Define Functions For Script
+# ----------------------------------
+def_colors() {
+    # Attributes
+    normal='\033[0m'; bold='\033[1m'; dim='\033[2m'; under='\033[4m' italic='\033[3m'; noitalic='\033[23m';
+    blink='\033[5m'; reverse='\033[7m'; conceal='\033[8m' nobold='\033[22m'; nounder='\033[24m'; noblink='\033[25m'
+    STD='\033[0;0;39m'
+    # Foreground
+    black='\033[30m'; red='\033[31m'; green='\033[32m'; yellow='\033[33m' blue='\033[34m';
+    magenta='\033[35m'; cyan='\033[36m'; white='\033[37m'
+    # Background
+    bblack='\033[40m'; bred='\033[41m'
+    bgreen='\033[42m'; byellow='\033[43m'
+    bblue='\033[44m'; bmagenta='\033[45m'
+    bcyan='\033[46m'; bwhite='\033[47m'
+}
+
+# Show the options to the user
+function menu { 
+  #clear
+  echo -e "\n------------------------------[Make Menu]------------------------------\n"
+  
+  for c in {1..100}; do
+    cmd=CMD_$c
+    eval 'cmd_desc='"$cmd"'_DESCRIPTION'
+    if [ -n "${!cmd}" ]; then
+      echo -e "\t${c}. ${!cmd_desc}"
+    else
+      break
+    fi
+  done
+
+  echo -e "\t0. Exit program\n"
+  echo -e "-----------------------------------------------------------------------\n"
+  echo -en "\tEnter option: "
+  read -n 2 option
+  echo -e "\n"
+}
+
+# Checks that all function's arguments are numerical
+function check_arguments {
+  #DEBUG(show all arguments from script passed to this function): echo ${@:1} => this strips the arg 0 which is script name
+  for a in "${@:1}"; do
+    if ! [[ $a =~ ^[0-9]+$ ]]; then
+        logError "\n\nError: Argument '${a}' is not a number\n" >&2; 
+        exit 1
+    fi
+  done
+}
+
+# Runs the selected command, showing its definition, from the list of commands
+function run_cmd {
+  
+  # Capturing User Input - if used in commands
+  if [ ${#user_inputs[@]} -eq 0 ]; then
+      declare -A user_inputs
+  fi
+
+  for c in "$@"; do
+    cmd=CMD_$c
+
+    # Test if command relative to arg number is defined in 'make_cmds'
+    if [ -n "${!cmd}" ]; then
+    	eval 'cmd_desc='"$cmd"'_DESCRIPTION'
+        showHighlight "\n=================================[EXECUTING]================================="
+        showHighlight "${!cmd_desc}"
+        eval 'cmd_list=("${'"$cmd"'[@]}")'  # Gets array copy by var name
+
+        # Execute each command sub-command
+        for (( j = 0; j < ${#cmd_list[@]} ; j++ )); do
+            
+            # Check if "confirm-<user message>" is set for the sequence of commands
+            if [ "${cmd_list[$j]:0:7}" = "confirm" ]; then
+                if [ $FORCE_MODE != "ON" ]; then
+                    showWarning "\n${cmd_list[$j]:8}"
+                    confirmToContinue
+                fi
+
+            # Check if "continue" set of commands or exit script
+            elif [ "${cmd_list[$j]:0:8}" = "continue" ]; then
+                if [ $FORCE_MODE != "ON" ]; then
+                    confirmToContinue
+                fi 
+
+            # Check if "Run in Force mode" was used
+            elif [ "${cmd_list[$j]:0:11}" = "forceRunAsk" ]; then
+                echo -e "\n${bold}${cyan}"
+                read -r -n 1 -p "Should I run all commands without confirmation? [No] " ANSWER
+                echo -e "${STD}"
+                if [[ $ANSWER =~ ^[Yy]$ ]]; then
+                    FORCE_MODE="ON"
+                fi
+
+            # Check if command is to show info to user
+            elif [ "${cmd_list[$j]:0:4}" = "info" ]; then
+                showWarning "${cmd_list[$j]:5}"
+                read -r -n 1 -p "Press any key to continue..."
+
+            # Check if User wants to skip next command
+            elif [ "${cmd_list[$j]:0:9}" = "askIfSkip" ]; then
+                if [ $FORCE_MODE != "ON" ]; then
+                    j1=$(($j+1))
+                    showWarning "Next command will be: ${cmd_list[$j1]}"
+                    read -r -n 1 -p "Do you want to skip the next command? [No] " ANSWER
+                    if [[ $ANSWER =~ ^[Yy]$ ]]; then
+                        j="${j1}"
+                        showWarning "Skipped.\n"
+                    fi
+                fi
+
+            # Check if asking for variable input from User
+            elif [ "${cmd_list[$j]:0:6}" = "askVar" ]; then
+                showInfo "\n ${cmd_list[$j]:7}"
+                read -p "> " variable_value
+                varname=${cmd_list[$j]#*-}; varname=${varname%-*}
+                varkey=${varname#*\{}; varkey=${varkey%\}*}
+                user_inputs[$varkey]=$variable_value
+                # echo "${!user_inputs[@]}" "${user_inputs[@]}"
+
+            # ===Execute the selected command's current sub-command===
+            else
+                CMDEXEC=${cmd_list[$j]}
+                # Substitute variables from earlier inputs in the cmd 1st
+                # Keys of user input =>   ${!user_inputs[@]}
+                # Values of user inpute =>   ${user_inputs[@]}
+                for key in "${!user_inputs[@]}"
+                do
+                    CMDEXEC=${CMDEXEC//\{${key}\}/${user_inputs[$key]}}
+                done
+                showInfo "$((j+1))) Running: ${CMDEXEC}\n"
+                eval "${CMDEXEC[@]}"
+            fi
+        done
+        showHighlight "\n================[DONE]=================${STD}\n"
+    fi
+  done
+}
+
+function confirmToContinue {
+	read -r -n 1 -p "Do you want to proceed? [Y/N] " ANSWER
+    echo
+    # If user wants to abort, exit the script
+    if ! [[ $ANSWER =~ ^[Yy]$ ]]; then
+        logError "\n>>> Exited!"
+        exit      
+    fi
+}
+
+function logError {
+	# Check if COMPACT option - not adding new lines - should be ON or OFF
+	if [ "$1" = "-c" ]; then
+        NL=""
+        TEXT=$2
+    else
+        NL="\n"
+        TEXT=$1
+    fi
+    echo -e "${red}${TEXT}${NL}${STD}"
+}
+function showWarning {
+	# Check if COMPACT option - not adding new lines - should be ON or OFF
+	if [ "$1" = "-c" ]; then
+        NL=""
+        TEXT=$2
+    else
+        NL="\n"
+        TEXT=$1
+    fi
+    echo -e "${bold}${magenta}${TEXT}${NL}${STD}"
+}
+function showHighlight {
+	# Check if COMPACT option - not adding new lines - should be ON or OFF
+	if [ "$1" = "-c" ]; then
+        NL=""
+        TEXT=$2
+    else
+        NL="\n"
+        TEXT=$1
+    fi
+    echo -e "${white}${bblue}${TEXT}${NL}${STD}"
+}
+function showInfo {
+	# Check if COMPACT option - not adding new lines - should be ON or OFF
+    if [ "$1" = "-c" ]; then
+        NL=""
+        TEXT=$2
+    else
+        NL="\n"
+        TEXT=$1
+    fi
+    echo -e "${bold}${blue}${TEXT}${NL}${STD}"
+}
+
+function checkOverallServerDiskSpace {
+    LIMIT_WARNING=85
+    LIMIT_ABORT=95
+    ABORT_IF_RISKY=true
+
+    NR_WARNINGS=$(df -P | awk '0+$5 >= '${LIMIT_WARNING}' {print "[Mount Point: "$6 " ====>  Used: " $5 "]"}' | wc -l)
+    NR_ABORTS=$(df -P | awk '0+$5 >= '${LIMIT_ABORT}' {print "[Mount Point: "$6 " ====>  Used: " $5 "]"}' | wc -l)
+    if [ $NR_WARNINGS -gt 0 ]; then
+        showInfo -c "\n===================================="
+        showInfo -c " DISK SPACE WARNINGS: ${NR_WARNINGS}"
+        showInfo -c "------------------------------------"
+        df -P | awk '0+$5 >= '${LIMIT_WARNING}' {print "[Mount Point: "$6 "   ===>  Used: " $5 "]"}'
+        showInfo "====================================\n"
+    fi
+    if [ $NR_ABORTS -gt 0 ]; then
+        logError -c "\n===================================="
+        logError -c "   DISK SPACE WARNINGS: ${NR_WARNINGS}"
+        logError -c "------------------------------------"
+        df -P | awk '0+$5 >= '${LIMIT_WARNING}' {print "[Mount Point: "$6 "   ===>  Used: " $5 "]"}'
+        logError "===================================="
+
+        if [ "$ABORT_IF_RISKY" = true ] ; then
+            logError "\n>> Solve disk space problems before continuing. Aborting..."
+            exit
+        else
+            logError "\n>> Your disk space is really low. Will continue for now, but solve the issue as soon asyou can."
+        fi
+    fi
+}
+
+# ----------------------------------
+# 3) Execute Main Logic
+# ----------------------------------
+
+def_colors
+checkOverallServerDiskSpace
+
+FORCE_MODE='OFF'
+
+if [[ "$#" -eq 0 || $1 = "-i" ]]; then
+	# Run the menu using whiptail if the binary exists in the system
+	if hash whiptail 2>/dev/null; then
+        option=$(menuWhiptail)
+    # Run the menu using normal characters in terminal
+    else
+        menu
+    fi    
+    run_cmd $option
+else
+    check_arguments "$@"
+    run_cmd "$@"
+fi
+
+# Produce a beep so user knows script finished
+echo -en "\007"
+
+exit 0
+
